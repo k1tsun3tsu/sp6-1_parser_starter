@@ -1,133 +1,31 @@
 function parsePage() {
-    // вспомогательные функции
-    const getElement = (selector, parent = document) => parent.querySelector(selector);
+
+    const getElementText = (selector, defaultValue = '', transform = null, parent = document) => {
+        const element = parent.querySelector(selector);
+        if (!element) return defaultValue;
+        let text = element.textContent?.trim() || defaultValue;
+        if (transform && text && text !== defaultValue) {
+            try {
+                text = transform(text);
+            } catch (e) {
+                console.error(`Error applying transform for selector "${selector}":`, e);
+            }
+        }
+        return text;
+    };
     
 
-    const getAllElements = (selector, parent = document) => [...parent.querySelectorAll(selector)];
-    
-
-    const cleanText = (element) => element?.textContent?.trim() || '';
-    
-    // язык страницы
-    const language = document.documentElement.lang || '';
-    
-    // мета название сайта
-    const fullTitle = document.title;
-    const titleParts = fullTitle.split('—');
-    const pageTitle = titleParts[0].trim();
-    
-    // мета ключевые слова
-    const keywordsMeta = getElement('meta[name="keywords"]');
-    const keywords = keywordsMeta?.getAttribute('content')?.split(',').map(k => k.trim()) || [];
-    
-    // мета описание
-    const descriptionMeta = getElement('meta[name="description"]');
-    const metaDescription = descriptionMeta?.getAttribute('content') || '';
-    
-    // опенграф
-    const ogTags = getAllElements('meta[property^="og:"]');
-    const opengraph = {};
-    ogTags.forEach(tag => {
-        const property = tag.getAttribute('property');
-        const key = property.substring(3); // Remove 'og:' prefix
-        opengraph[key] = tag.getAttribute('content') || '';
-    });
-    
-    // Айди продукта
-    const productSection = getElement('.product');
-    const productId = productSection?.getAttribute('data-id') || '';
-    
-    // Массив изобращений
-    const mainImage = getElement('.preview figure img');
-    const thumbnailButtons = getAllElements('.preview nav button');
-    
-    const images = [];
-    
-
-    if (mainImage) {
-        images.push({
-            full: mainImage.src || '',
-            thumbnail: mainImage.src || '',
-            alt: mainImage.alt || ''
+    const getCleanHTML = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return '';
+        const clone = element.cloneNode(true);
+        clone.querySelectorAll('*').forEach(el => {
+            [...el.attributes].forEach(attr => {
+                el.removeAttribute(attr.name);
+            });
         });
-    }
-    
-
-    thumbnailButtons.forEach(button => {
-        const thumbImg = getElement('img', button);
-        if (thumbImg) {
-            const fullImageUrl = thumbImg.getAttribute('data-src') || thumbImg.src || '';
-            const thumbnailUrl = thumbImg.src || '';
-            const altText = thumbImg.alt || '';
-            
-
-            const isDuplicate = images.some(img => img.full === fullImageUrl);
-            if (!isDuplicate && fullImageUrl) {
-                images.push({
-                    full: fullImageUrl,
-                    thumbnail: thumbnailUrl,
-                    alt: altText
-                });
-            }
-        }
-    });
-    
-    // статус лайка
-    const likeButton = getElement('.like');
-    const isLiked = likeButton?.classList.contains('active') || false;
-    
-    // Наименование товара
-    const h1Element = getElement('.about h1');
-    const productTitle = cleanText(h1Element);
-    
-
-    const tagsContainer = getElement('.tags');
-    const tagElements = getAllElements('span', tagsContainer);
-    
-    const categories = [];
-    const badges = [];
-    const discounts = [];
-    
-    tagElements.forEach(tag => {
-        const tagText = cleanText(tag);
-        if (tag.classList.contains('green')) {
-            categories.push(tagText);
-        } else if (tag.classList.contains('blue')) {
-            badges.push(tagText);
-        } else if (tag.classList.contains('red')) {
-            discounts.push(tagText);
-        }
-    });
-    
-    // цена товара
-    const priceContainer = getElement('.price');
-    let priceWithDiscount = 0;
-    let priceWithoutDiscount = 0;
-    let currency = '';
-    
-    if (priceContainer) {
-        const priceText = cleanText(priceContainer);
-        const priceMatch = priceText.match(/([$€₽])(\d+)/);
-        if (priceMatch) {
-            currency = priceMatch[1];
-            priceWithDiscount = parseInt(priceMatch[2], 10);
-        }
-        
-        const oldPriceSpan = getElement('span', priceContainer);
-        if (oldPriceSpan) {
-            const oldPriceText = cleanText(oldPriceSpan);
-            const oldPriceMatch = oldPriceText.match(/([$€₽])(\d+)/);
-            if (oldPriceMatch) {
-                priceWithoutDiscount = parseInt(oldPriceMatch[2], 10);
-            }
-        }
-    }
-    
-
-    let discountPercent = 0;
-    if (priceWithoutDiscount > 0 && priceWithDiscount > 0) {
-        discountPercent = Math.round(((priceWithoutDiscount - priceWithDiscount) / priceWithoutDiscount) * 100);
-    }
+        return clone.innerHTML.trim();
+    };
     
 
     const currencyMap = {
@@ -135,152 +33,147 @@ function parsePage() {
         '€': 'EUR',
         '₽': 'RUB'
     };
-    const currencyCode = currencyMap[currency] || '';
     
+    // ========== META ==========
+    // описание
+    const descriptionMeta = document.querySelector('meta[name="description"]');
+    const metaDescription = descriptionMeta?.getAttribute('content') || '';
+    
+    // ключевые слова
+    const keywordsMeta = document.querySelector('meta[name="keywords"]');
+    const keywords = keywordsMeta?.getAttribute('content')?.split(',').map(k => k.trim()) || [];
+    
+    // опенграф теги
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    const ogImage = document.querySelector('meta[property="og:image"]');
+    const ogType = document.querySelector('meta[property="og:type"]');
+    
+    const meta = {
+        title: getElementText('head title', '', (text) => text.split('—').shift().trim()),
+        description: metaDescription,
+        keywords: keywords,
+        language: document.querySelector('html')?.lang ?? 'en',
+        opengraph: {
+            title: ogTitle ? (ogTitle.getAttribute('content') || '').split('—').shift().trim() : '',
+            image: ogImage?.getAttribute('content') || '',
+            type: ogType?.getAttribute('content') || ''
+        }
+    };
+    
+    // ========== PRODUCT ==========
     // свойства
-    const propertiesList = getElement('.properties');
-    const propertyItems = getAllElements('li', propertiesList);
+    const propertyItems = [...document.querySelectorAll('.about .properties li')];
     const properties = {};
-    
     propertyItems.forEach(item => {
-        const spans = getAllElements('span', item);
+        const spans = [...item.children];
         if (spans.length >= 2) {
-            const key = cleanText(spans[0]);
-            const value = cleanText(spans[1]);
-            properties[key] = value;
+            const key = spans[0]?.textContent?.trim();
+            const value = spans[1]?.textContent?.trim();
+            if (key) {
+                properties[key] = value;
+            }
         }
     });
     
-    // описание
-    const descriptionContainer = getElement('.description');
-    let fullDescription = '';
+    // разбор по цветам
+    const getTagsByColor = (color) => {
+        return [...document.querySelectorAll(`.about .tags .${color}`)].map(tag => tag.textContent.trim());
+    };
     
-    if (descriptionContainer) {
-
-        const clone = descriptionContainer.cloneNode(true);
-        
-
-        const unusedHeader = getElement('h3', clone);
-        if (unusedHeader && unusedHeader.classList.contains('unused')) {
-            unusedHeader.remove();
+    // цена товара
+    const priceContainer = document.querySelector('.product .price');
+    let price = 0;
+    let oldPrice = 0;
+    let discountValue = 0;
+    let discountPercent = '0%';
+    let currencySymbol = '';
+    
+    if (priceContainer) {
+        const textNodes = [...priceContainer.childNodes].filter(node => 
+            node.nodeType === Node.TEXT_NODE && node.textContent.trim()
+        );
+        if (textNodes.length > 0) {
+            const priceText = textNodes[0].textContent.trim();
+            currencySymbol = priceText[0];
+            price = parseFloat(priceText.slice(1)) || 0;
         }
         
 
-        const allElements = clone.querySelectorAll('*');
-        allElements.forEach(el => {
-            const attributes = [...el.attributes]; // преобразует псевдомассив в обычный
-            attributes.forEach(attr => {
-                if (attr.name !== 'href' && attr.name !== 'src') {
-                    el.removeAttribute(attr.name);
-                }
-            });
-        });
-        
-        fullDescription = clone.innerHTML;
+        const oldPriceSpan = priceContainer.querySelector('span');
+        if (oldPriceSpan) {
+            const oldPriceText = oldPriceSpan.textContent.trim();
+            oldPrice = parseFloat(oldPriceText.slice(1)) || 0;
+            if (oldPrice > 0 && price > 0) {
+                discountValue = oldPrice - price;
+                discountPercent = ((100 - (price / oldPrice * 100)).toFixed(2)) + '%';
+            }
+        }
     }
     
-    // предложения
-    const suggestedProducts = [];
-    const suggestedArticles = getAllElements('.suggested .items article');
+    // картинки
+    const images = [...document.querySelectorAll('.preview nav img')].map(img => ({
+        preview: img.src || '',
+        full: img.dataset.src || '',
+        alt: img.alt || ''
+    }));
     
-    suggestedArticles.forEach(article => {
-        const img = getElement('img', article);
-        const titleElement = getElement('h3', article);
-        const priceElement = getElement('b', article);
-        const descElement = getElement('p', article);
+    // парс продукта
+    const product = {
+        id: document.querySelector('.product')?.dataset?.id || '',
+        name: getElementText('.product h1', ''),
+        isLiked: document.querySelector('.product .preview .like')?.classList.contains('active') || false,
+        tags: {
+            category: getTagsByColor('green'),
+            discount: getTagsByColor('red'),
+            label: getTagsByColor('blue')
+        },
+        price: price,
+        oldPrice: oldPrice,
+        discount: discountValue,
+        discountPercent: discountPercent,
+        currency: currencyMap[currencySymbol] || currencySymbol,
+        properties: properties,
+        description: getCleanHTML('.about .description'),
+        images: images
+    };
+    
+    // ========== SUGGESTED ==========
+    const suggested = [...document.querySelectorAll('.suggested .items article')].map(article => {
+        const priceElement = article.querySelector('b');
+        const priceText = priceElement?.textContent?.trim() || '';
+        const currencySymbol = priceText[0];
         
-        const priceText = cleanText(priceElement);
-        const priceMatch = priceText.match(/([$€₽])(\d+)/);
-        let price = 0;
-        let productCurrency = '';
-        
-        if (priceMatch) {
-            productCurrency = currencyMap[priceMatch[1]] || '';
-            price = parseInt(priceMatch[2], 10);
-        }
-        
-        suggestedProducts.push({
-            image: img?.src || '',
-            title: cleanText(titleElement),
-            price: price,
-            currency: productCurrency,
-            description: cleanText(descElement)
-        });
+        return {
+            name: getElementText('h3', '', null, article),
+            description: getElementText('p', '', null, article),
+            image: article.querySelector('img')?.src ?? '',
+            price: priceText.slice(1) || '',
+            currency: currencyMap[currencySymbol] || currencySymbol
+        };
     });
     
-    // отзывы
-    const reviews = [];
-    const reviewArticles = getAllElements('.reviews .items article');
-    
-    reviewArticles.forEach(article => {
-        const stars = getAllElements('.rating span', article);
-        const rating = stars.filter(star => star.classList.contains('filled')).length;
+    // ========== REVIEWS ==========
+    const reviews = [...document.querySelectorAll('.reviews .items article')].map(article => {
+        const rating = article.querySelectorAll('.rating span.filled').length;
+        const dateText = getElementText('.author i', '', null, article);
         
-        const titleElement = getElement('.title', article);
-        const descElement = getElement('p', article);
-        const authorDiv = getElement('.author', article);
-        
-        let avatar = '';
-        let authorName = '';
-        let date = '';
-        
-        if (authorDiv) {
-            const avatarImg = getElement('img', authorDiv);
-            avatar = avatarImg?.src || '';
-            
-            const spans = getAllElements('span', authorDiv);
-            authorName = spans.length > 0 ? cleanText(spans[0]) : '';
-            
-            const italicElement = getElement('i', authorDiv);
-            date = italicElement ? cleanText(italicElement) : '';
-        }
-        
-        // форматируем дату
-        let formattedDate = date;
-        if (date && date.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
-            const [day, month, year] = date.split('/');
-            formattedDate = `${day}.${month}.${year}`;
-        }
-        
-        reviews.push({
+        return {
             rating: rating,
-            title: cleanText(titleElement),
-            description: cleanText(descElement),
             author: {
-                avatar: avatar,
-                name: authorName
+                avatar: article.querySelector('.author img')?.src ?? '',
+                name: getElementText('.author span', '', null, article)
             },
-            date: formattedDate
-        });
+            title: getElementText('h3', '', null, article),
+            description: getElementText('p', '', null, article),
+            date: dateText.replaceAll('/', '.')
+        };
     });
     
-
+    // полный парс
     return {
-        meta: {
-            language,
-            title: pageTitle,
-            keywords,
-            description: metaDescription,
-            opengraph
-        },
-        product: {
-            id: productId,
-            images: images,
-            isLiked: isLiked,
-            title: productTitle,
-            categories: categories,
-            badges: badges,
-            discounts: discounts,
-            priceWithDiscount: priceWithDiscount,
-            priceWithoutDiscount: priceWithoutDiscount,
-            discountPercent: discountPercent,
-            currency: currencyCode,
-            properties: properties,
-            description: fullDescription
-        },
-        suggested: suggestedProducts,
+        meta: meta,
+        product: product,
+        suggested: suggested,
         reviews: reviews
     };
 }
-
-window.parsePage = parsePage;
